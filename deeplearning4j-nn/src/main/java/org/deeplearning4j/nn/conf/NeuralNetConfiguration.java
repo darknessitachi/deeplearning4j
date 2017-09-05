@@ -580,7 +580,9 @@ public class NeuralNetConfiguration implements Serializable, Cloneable {
         protected WeightInit weightInit = WeightInit.XAVIER;
         protected double biasInit = 0.0;
         protected Distribution dist = null;
-        protected double learningRate = 1e-1;
+        @Deprecated
+        protected double learningRate = Double.NaN;
+        @Deprecated
         protected double biasLearningRate = Double.NaN;
         protected double l1 = Double.NaN;
         protected double l2 = Double.NaN;
@@ -588,8 +590,8 @@ public class NeuralNetConfiguration implements Serializable, Cloneable {
         protected double l2Bias = Double.NaN;
         protected IDropout idropOut = null;
         @Deprecated
-        protected Updater updater = Updater.SGD;
-        protected IUpdater iUpdater = new Sgd();
+        protected Updater updater = null;   //Updater.SGD;
+        protected IUpdater iUpdater = null; //new Sgd();
         @Deprecated
         protected double momentum = Double.NaN;
         @Deprecated
@@ -941,6 +943,7 @@ public class NeuralNetConfiguration implements Serializable, Cloneable {
         /**
          * Learning rate. Defaults to 1e-1
          */
+        @Deprecated
         public Builder learningRate(double learningRate) {
             this.learningRate = learningRate;
             return this;
@@ -949,6 +952,7 @@ public class NeuralNetConfiguration implements Serializable, Cloneable {
         /**
          * Bias learning rate. Set this to apply a different learning rate to the bias
          */
+        @Deprecated
         public Builder biasLearningRate(double biasLearningRate) {
             this.biasLearningRate = biasLearningRate;
             return this;
@@ -1072,9 +1076,10 @@ public class NeuralNetConfiguration implements Serializable, Cloneable {
          *
          * @see Updater
          */
+        @Deprecated
         public Builder updater(Updater updater) {
             this.updater = updater;
-            return updater(updater.getIUpdaterWithDefaultConfig());
+            return this;
         }
 
         /**
@@ -1281,12 +1286,6 @@ public class NeuralNetConfiguration implements Serializable, Cloneable {
             conf.stepFunction = stepFunction;
             conf.useDropConnect = useDropConnect;
             conf.miniBatch = miniBatch;
-//            conf.learningRatePolicy = learningRatePolicy;
-//            conf.lrPolicyDecayRate = lrPolicyDecayRate;
-//            conf.lrPolicySteps = lrPolicySteps;
-//            conf.lrPolicyPower = lrPolicyPower;
-//            conf.learningRateSchedule = learningRateSchedule;
-//            conf.biasLearningRateSchedule = biasLearningRateSchedule;
             conf.pretrain = pretrain;
             conf.cacheMode = this.cacheMode;
 
@@ -1346,10 +1345,55 @@ public class NeuralNetConfiguration implements Serializable, Cloneable {
                     bLayer.setWeightInit(weightInit);
                 if (Double.isNaN(bLayer.getBiasInit()))
                     bLayer.setBiasInit(biasInit);
-                if (bLayer.getIUpdater() == null) {
+                if (bLayer.getIUpdater() == null && iUpdater != null) {
                     bLayer.setIUpdater(iUpdater.clone());
                 }
-                LayerValidation.updaterValidation(layerName, layer, learningRate);
+
+                //Legacy case: user set updater globally, and LR locally...
+                if(!Double.isNaN(bLayer.getLearningRate()) && bLayer.getIUpdater() == null && updater != null){
+                    bLayer.setIUpdater(updater.getIUpdaterWithDefaultConfig());
+                    LayerValidation.setLegacyLr(bLayer.getIUpdater(), bLayer.getLearningRate());
+                }
+
+                //Legacy case: user set global Updater field (and possibly global LR), and nothing on layer (except possibly LR)...
+                if(updater != null && bLayer.getIUpdater() == null){
+                    bLayer.setIUpdater(updater.getIUpdaterWithDefaultConfig());
+                    if(!Double.isNaN(bLayer.getLearningRate())){
+                        LayerValidation.setLegacyLr(bLayer.getIUpdater(), bLayer.getLearningRate());
+                    } else if(!Double.isNaN(learningRate)){
+                        LayerValidation.setLegacyLr(bLayer.getIUpdater(), learningRate);
+                    }
+                }
+
+                //Legacy case: user set global Updater field (and possibly global *bias* LR), and nothing on layer (except possibly bias LR)...
+                if(updater != null && bLayer.getBiasUpdater() == null){
+                    bLayer.setBiasUpdater(updater.getIUpdaterWithDefaultConfig());
+                    if(!Double.isNaN(bLayer.getBiasLearningRate())){
+                        LayerValidation.setLegacyLr(bLayer.getBiasUpdater(), bLayer.getBiasLearningRate());
+                    } else if(!Double.isNaN(biasLearningRate)){
+                        LayerValidation.setLegacyLr(bLayer.getBiasUpdater(), biasLearningRate);
+                    }
+                }
+
+                //Legacy case: user hasn't set updater anywhere - set default
+                if(bLayer.getIUpdater() == null && iUpdater == null){
+                    if(Double.isNaN(bLayer.getLearningRate())){
+                        bLayer.setIUpdater(new Sgd());
+                    } else {
+                        bLayer.setIUpdater(new Sgd(bLayer.getLearningRate()));
+                    }
+                }
+
+
+                if (Double.isNaN(bLayer.getLearningRate()) && !Double.isNaN(learningRate)){
+                    LayerValidation.setLegacyLr(bLayer.getIUpdater(), learningRate);
+                }
+                if (bLayer.getBiasUpdater() == null && !Double.isNaN(biasLearningRate) && iUpdater != null ) {
+                    bLayer.setBiasUpdater(iUpdater.clone());
+                    LayerValidation.setLegacyLr(bLayer.getBiasUpdater(), biasLearningRate);
+                }
+
+                LayerValidation.updaterValidation(layerName, layer, learningRate, biasLearningRate, momentum, momentumSchedule, adamMeanDecay, adamVarDecay, rho, rmsDecay, epsilon);
                 if (bLayer.getGradientNormalization() == null)
                     bLayer.setGradientNormalization(gradientNormalization);
                 if (Double.isNaN(bLayer.getGradientNormalizationThreshold()))
