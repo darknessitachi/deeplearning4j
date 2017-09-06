@@ -44,6 +44,22 @@ public class BatchNormalization extends FeedForwardLayer {
         this.gamma = builder.gamma;
         this.beta = builder.beta;
         this.lockGammaBeta = builder.lockGammaBeta;
+
+        //Handle legacy LR config set by user:
+        if(builder.updater != null && builder.iupdater == null){
+            if(!Double.isNaN(builder.learningRate)){
+                //User has done something like .updater(Updater.NESTEROVS).learningRate(0.2)
+                configureUpdaterFromLegacyLR(this, builder, builder.learningRate, false);
+            } else {
+                //Use default learning rate
+                this.iUpdater = builder.updater.getIUpdaterWithDefaultConfig();
+            }
+
+            if(!Double.isNaN(builder.biasLearningRate)){
+                //User *also* set bias learning rate...
+                configureUpdaterFromLegacyLR(this, builder, builder.biasLearningRate, true);
+            }
+        }
     }
 
     @Override
